@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.VisualBasic;
 
 namespace Paint
 {
@@ -3360,6 +3363,8 @@ namespace Paint
             DrawSurroundedShape(surroundedShape);
         }
 
+
+        // tranlasi
         private void MoveShape(PointF point)
         {
             g.Clear(picMain.BackColor);
@@ -4134,32 +4139,18 @@ namespace Paint
 
         private void btnRotateLeft_Click(object sender, EventArgs e)
         {
+            if (!TryGetRotationAngle("Rotate Left", "Enter angle in degrees (negative for left rotation):", -90f, out float angleDegrees))
+            {
+                return;
+            }
+
             if (isDashRectDrawn)
             {
-                bmpInsideDashRect.RotateFlip(RotateFlipType.Rotate270FlipNone);
-
-                g.Clear(picMain.BackColor);
-                bmpMain = new Bitmap(bmpBeforeShape);
-                g = Graphics.FromImage(bmpMain);
-
-                g.DrawImage(bmpInsideDashRect, new RectangleF(dashRectUpperLeftPoint.X, dashRectUpperLeftPoint.Y, dashRectLowerRightPoint.X - dashRectUpperLeftPoint.X, dashRectLowerRightPoint.Y - dashRectUpperLeftPoint.Y));
-                picMain.DrawToBitmap(bmpBeforeDashRect, new Rectangle(0, 0, picMain.Width, picMain.Height));
-                draw.DashRectangle(dashRectUpperLeftPoint, dashRectLowerRightPoint);
+                RotateSelectedObject(angleDegrees);
             }
             else
             {
-                bmpMain.RotateFlip(RotateFlipType.Rotate270FlipNone);
-
-                picMain.Size = new Size(picMain.Height, picMain.Width);
-                bmpMain = new Bitmap(bmpMain, picMain.Width, picMain.Height);
-                bmpBeforeDrawWithMouseMove = new Bitmap(picMain.Width, picMain.Height);
-                bmpBeforeDashRect = new Bitmap(picMain.Width, picMain.Height);
-                bmpBeforeShape = new Bitmap(picMain.Width, picMain.Height);
-
-                backgroundGraphics.Clear(pnlBackground.BackColor);
-                //DrawTinySquaresAroundPicMain();
-
-                g.DrawImage(bmpMain, new RectangleF(0, 0, picMain.Width, picMain.Height));
+                RotateCanvas(angleDegrees);
             }
 
             picMain.Refresh();
@@ -4167,35 +4158,156 @@ namespace Paint
 
         private void btnRotateRight_Click(object sender, EventArgs e)
         {
+            if (!TryGetRotationAngle("Rotate Right", "Enter angle in degrees (positive for right rotation):", 90f, out float angleDegrees))
+            {
+                return;
+            }
+
             if (isDashRectDrawn)
             {
-                bmpInsideDashRect.RotateFlip(RotateFlipType.Rotate90FlipNone);
-
-                g.Clear(picMain.BackColor);
-                bmpMain = new Bitmap(bmpBeforeShape);
-                g = Graphics.FromImage(bmpMain);
-
-                g.DrawImage(bmpInsideDashRect, new RectangleF(dashRectUpperLeftPoint.X, dashRectUpperLeftPoint.Y, dashRectLowerRightPoint.X - dashRectUpperLeftPoint.X, dashRectLowerRightPoint.Y - dashRectUpperLeftPoint.Y));
-                picMain.DrawToBitmap(bmpBeforeDashRect, new Rectangle(0, 0, picMain.Width, picMain.Height));
-                draw.DashRectangle(dashRectUpperLeftPoint, dashRectLowerRightPoint);
+                RotateSelectedObject(angleDegrees);
             }
             else
             {
-                bmpMain.RotateFlip(RotateFlipType.Rotate90FlipNone);
-
-                picMain.Size = new Size(picMain.Height, picMain.Width);
-                bmpMain = new Bitmap(bmpMain, picMain.Width, picMain.Height);
-                bmpBeforeDrawWithMouseMove = new Bitmap(picMain.Width, picMain.Height);
-                bmpBeforeDashRect = new Bitmap(picMain.Width, picMain.Height);
-                bmpBeforeShape = new Bitmap(picMain.Width, picMain.Height);
-
-                backgroundGraphics.Clear(pnlBackground.BackColor);
-                //DrawTinySquaresAroundPicMain();
-
-                g.DrawImage(bmpMain, new RectangleF(0, 0, picMain.Width, picMain.Height));
+                RotateCanvas(angleDegrees);
             }
 
             picMain.Refresh();
+        }
+
+        private bool TryGetRotationAngle(string title, string prompt, float defaultAngle, out float angleDegrees)
+        {
+            string input = Interaction.InputBox(prompt, title, defaultAngle.ToString(CultureInfo.CurrentCulture));
+
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                angleDegrees = 0f;
+                return false;
+            }
+
+            if (!float.TryParse(input, NumberStyles.Float, CultureInfo.CurrentCulture, out angleDegrees) &&
+                !float.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out angleDegrees))
+            {
+                MessageBox.Show("Please enter a valid numeric angle.", title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            return true;
+        }
+
+        private void RotateSelectedObject(float angleDegrees)
+        {
+            if (bmpInsideDashRect == null)
+            {
+                return;
+            }
+
+            Bitmap rotatedSelection = RotateBitmapManual(bmpInsideDashRect, angleDegrees);
+            PointF selectionCenter = new PointF(
+                (dashRectUpperLeftPoint.X + dashRectLowerRightPoint.X) / 2f,
+                (dashRectUpperLeftPoint.Y + dashRectLowerRightPoint.Y) / 2f);
+
+            bmpInsideDashRect.Dispose();
+            bmpInsideDashRect = rotatedSelection;
+            dashRectUpperLeftPoint = new PointF(selectionCenter.X - bmpInsideDashRect.Width / 2f, selectionCenter.Y - bmpInsideDashRect.Height / 2f);
+            dashRectLowerRightPoint = new PointF(dashRectUpperLeftPoint.X + bmpInsideDashRect.Width, dashRectUpperLeftPoint.Y + bmpInsideDashRect.Height);
+
+            g.Clear(picMain.BackColor);
+            bmpMain = new Bitmap(bmpBeforeShape);
+            g = Graphics.FromImage(bmpMain);
+
+            g.DrawImage(bmpInsideDashRect, new RectangleF(dashRectUpperLeftPoint.X, dashRectUpperLeftPoint.Y, bmpInsideDashRect.Width, bmpInsideDashRect.Height));
+            picMain.DrawToBitmap(bmpBeforeDashRect, new Rectangle(0, 0, picMain.Width, picMain.Height));
+            draw.DashRectangle(dashRectUpperLeftPoint, dashRectLowerRightPoint);
+        }
+
+        private void RotateCanvas(float angleDegrees)
+        {
+            Bitmap rotatedCanvas = RotateBitmapManual(bmpMain, angleDegrees);
+            bmpMain.Dispose();
+            bmpMain = rotatedCanvas;
+
+            picMain.Size = bmpMain.Size;
+            bmpBeforeDrawWithMouseMove = new Bitmap(picMain.Width, picMain.Height);
+            bmpBeforeDashRect = new Bitmap(picMain.Width, picMain.Height);
+            bmpBeforeShape = new Bitmap(picMain.Width, picMain.Height);
+
+            g = Graphics.FromImage(bmpMain);
+            backgroundGraphics.Clear(pnlBackground.BackColor);
+        }
+
+        private Bitmap RotateBitmapManual(Bitmap bmpSource, float angleDegrees)
+        {
+            if (bmpSource == null)
+            {
+                throw new ArgumentNullException(nameof(bmpSource));
+            }
+
+            float angleRadians = angleDegrees * (float)(Math.PI / 180.0);
+            float cos = (float)Math.Cos(angleRadians);
+            float sin = (float)Math.Sin(angleRadians);
+
+            float sourceCenterX = bmpSource.Width / 2f;
+            float sourceCenterY = bmpSource.Height / 2f;
+
+            PointF[] corners = new PointF[]
+            {
+                new PointF(-sourceCenterX, -sourceCenterY),
+                new PointF(bmpSource.Width - sourceCenterX, -sourceCenterY),
+                new PointF(bmpSource.Width - sourceCenterX, bmpSource.Height - sourceCenterY),
+                new PointF(-sourceCenterX, bmpSource.Height - sourceCenterY)
+            };
+
+            float minX = float.MaxValue;
+            float minY = float.MaxValue;
+            float maxX = float.MinValue;
+            float maxY = float.MinValue;
+
+            foreach (PointF corner in corners)
+            {
+                float rotatedX = corner.X * cos - corner.Y * sin;
+                float rotatedY = corner.X * sin + corner.Y * cos;
+
+                if (rotatedX < minX)
+                {
+                    minX = rotatedX;
+                }
+
+                if (rotatedX > maxX)
+                {
+                    maxX = rotatedX;
+                }
+
+                if (rotatedY < minY)
+                {
+                    minY = rotatedY;
+                }
+
+                if (rotatedY > maxY)
+                {
+                    maxY = rotatedY;
+                }
+            }
+
+            int rotatedWidth = (int)Math.Ceiling(maxX - minX);
+            int rotatedHeight = (int)Math.Ceiling(maxY - minY);
+
+            Bitmap bmpResult = new Bitmap(rotatedWidth, rotatedHeight, PixelFormat.Format32bppArgb);
+
+            using (Graphics graphics = Graphics.FromImage(bmpResult))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.SmoothingMode = SmoothingMode.HighQuality;
+
+                graphics.TranslateTransform(rotatedWidth / 2f, rotatedHeight / 2f);
+                graphics.RotateTransform(angleDegrees);
+                graphics.TranslateTransform(-sourceCenterX, -sourceCenterY);
+                graphics.DrawImage(bmpSource, new PointF(0, 0));
+            }
+
+            return bmpResult;
         }
 
         private void btnNew_Click(object sender, EventArgs e)
