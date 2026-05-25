@@ -66,8 +66,6 @@ namespace Paint
         float maxY;
         private bool isFirstDown = false;
         PointF[] polygonPointsArray;
-        PointF[] polygonPointsRatio;
-
         const int minSize = 10;
         const int margin = 5;
         public PointF dashRectUpperLeftPoint;
@@ -475,7 +473,6 @@ namespace Paint
                         isFirstDown = true; // polygon colsed
 
                         polygonPointsArray = polygonPoints.ToArray();
-                        SetPolygonPointsRatio();
 
                         polygonPoints.Clear();
 
@@ -3450,27 +3447,27 @@ namespace Paint
 
                 case SurroundedShapes.POLYGON:
                     {
-                        newWidth = dashRectLowerRightPoint.X - dashRectUpperLeftPoint.X;
-                        newHeight = dashRectLowerRightPoint.Y - dashRectUpperLeftPoint.Y;
+                        RectangleF sourceBounds = GetBoundsFromPoints(polygonPointsArray);
+                        RectangleF targetBounds = new RectangleF(dashRectUpperLeftPoint.X, dashRectUpperLeftPoint.Y, dashRectLowerRightPoint.X - dashRectUpperLeftPoint.X, dashRectLowerRightPoint.Y - dashRectUpperLeftPoint.Y);
 
-                        PointF[] newPolygonPoints = new PointF[polygonPointsArray.Length];
-                        for (int i = 0; i < polygonPointsArray.Length; i++)
+                        using (Matrix scaleMatrix = CreateScaleMatrix(sourceBounds, targetBounds))
                         {
-                            newPolygonPoints[i] = new PointF(dashRectUpperLeftPoint.X + polygonPointsRatio[i].X * newWidth, dashRectUpperLeftPoint.Y + polygonPointsRatio[i].Y * newHeight);
-                        }
+                            PointF[] newPolygonPoints = TransformPoints(polygonPointsArray, scaleMatrix);
 
-                        if (chkFill.Checked)
-                        {
-                            solidBrush = new SolidBrush(backgroundColor);
-                            g.FillPolygon(solidBrush, newPolygonPoints);
-                        }
-                        else
-                        {
-                            g.DrawLines(pen, newPolygonPoints);
-                        }
-                        if (chkOutline.Checked)
-                        {
-                            g.DrawLines(pen, newPolygonPoints);
+                            if (chkFill.Checked)
+                            {
+                                solidBrush = new SolidBrush(backgroundColor);
+                                g.FillPolygon(solidBrush, newPolygonPoints);
+                            }
+                            else
+                            {
+                                g.DrawLines(pen, newPolygonPoints);
+                            }
+
+                            if (chkOutline.Checked)
+                            {
+                                g.DrawLines(pen, newPolygonPoints);
+                            }
                         }
 
                         break;
@@ -3538,18 +3535,99 @@ namespace Paint
             }
         }
 
-        private void SetPolygonPointsRatio()
+        private static RectangleF GetBoundsFromPoints(PointF[] points)
         {
-            polygonPointsRatio = new PointF[polygonPointsArray.Length];
+            float minX = float.MaxValue;
+            float minY = float.MaxValue;
+            float maxX = float.MinValue;
+            float maxY = float.MinValue;
 
-            float oldWidth = dashRectLowerRightPoint.X - dashRectUpperLeftPoint.X;
-            float oldHeight = dashRectLowerRightPoint.Y - dashRectUpperLeftPoint.Y;
-
-            for (int i = 0; i < polygonPointsArray.Length; i++)
+            foreach (PointF point in points)
             {
-                polygonPointsRatio[i].X = (polygonPointsArray[i].X - dashRectUpperLeftPoint.X) / oldWidth;
-                polygonPointsRatio[i].Y = (polygonPointsArray[i].Y - dashRectUpperLeftPoint.Y) / oldHeight;
+                if (point.X < minX)
+                {
+                    minX = point.X;
+                }
+
+                if (point.Y < minY)
+                {
+                    minY = point.Y;
+                }
+
+                if (point.X > maxX)
+                {
+                    maxX = point.X;
+                }
+
+                if (point.Y > maxY)
+                {
+                    maxY = point.Y;
+                }
             }
+
+            return new RectangleF(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        private static PointF[] TransformPoints(PointF[] points, Matrix matrix)
+        {
+            PointF[] transformedPoints = points.Select(point => new PointF(point.X, point.Y)).ToArray();
+            matrix.TransformPoints(transformedPoints);
+            return transformedPoints;
+        }
+
+        private static Matrix CreateScaleMatrix(RectangleF sourceBounds, RectangleF targetBounds)
+        {
+            if (sourceBounds.Width == 0 || sourceBounds.Height == 0)
+            {
+                return new Matrix(1f, 0f, 0f, 1f, targetBounds.Left - sourceBounds.Left, targetBounds.Top - sourceBounds.Top);
+            }
+
+            float scaleX = targetBounds.Width / sourceBounds.Width;
+            float scaleY = targetBounds.Height / sourceBounds.Height;
+            float translateX = targetBounds.Left - (sourceBounds.Left * scaleX);
+            float translateY = targetBounds.Top - (sourceBounds.Top * scaleY);
+
+            return new Matrix(scaleX, 0f, 0f, scaleY, translateX, translateY);
+        }
+
+        private static Matrix CreateCenteredScaleMatrix(PointF centerPoint, float scaleX, float scaleY)
+        {
+            float translateX = centerPoint.X - (centerPoint.X * scaleX);
+            float translateY = centerPoint.Y - (centerPoint.Y * scaleY);
+
+            return new Matrix(scaleX, 0f, 0f, scaleY, translateX, translateY);
+        }
+
+        private Bitmap ScaleBitmapWithMatrix(Bitmap sourceBitmap, Matrix matrix)
+        {
+            PointF[] corners = new[]
+            {
+                new PointF(0, 0),
+                new PointF(sourceBitmap.Width, 0),
+                new PointF(sourceBitmap.Width, sourceBitmap.Height),
+                new PointF(0, sourceBitmap.Height)
+            };
+
+            PointF[] transformedCorners = TransformPoints(corners, matrix);
+            RectangleF destinationBounds = GetBoundsFromPoints(transformedCorners);
+            Bitmap scaledBitmap = new Bitmap((int)Math.Ceiling(destinationBounds.Width), (int)Math.Ceiling(destinationBounds.Height), PixelFormat.Format32bppArgb);
+
+            using (Graphics graphics = Graphics.FromImage(scaledBitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.SmoothingMode = SmoothingMode.HighQuality;
+
+                using (Matrix drawMatrix = matrix.Clone())
+                {
+                    drawMatrix.Translate(-destinationBounds.Left, -destinationBounds.Top, MatrixOrder.Append);
+                    graphics.Transform = drawMatrix;
+                    graphics.DrawImage(sourceBitmap, new RectangleF(0, 0, sourceBitmap.Width, sourceBitmap.Height));
+                }
+            }
+
+            return scaledBitmap;
         }
 
 
